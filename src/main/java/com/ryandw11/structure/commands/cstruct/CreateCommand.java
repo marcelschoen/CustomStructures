@@ -10,8 +10,6 @@ import com.ryandw11.structure.structure.properties.StructureProperties;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
 
 import java.io.File;
 import java.io.IOException;
@@ -77,7 +75,7 @@ public class CreateCommand implements SubCommand {
             }
             builder.setStructureProperties(new StructureProperties());
             builder.setStructureLocation(new StructureLocation());
-            builder.setStructureLimitations(new StructureLimitations(new ArrayList<>(), new BlockLevelLimit(), new HashMap<>()));
+            builder.setStructureLimitations(new StructureLimitations(new ArrayList<>(), new ArrayList<>(), new BlockLevelLimit(), new HashMap<>()));
             try {
                 builder.save(f);
             } catch (IOException e) {

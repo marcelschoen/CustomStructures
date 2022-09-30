@@ -1,29 +1,11 @@
 package com.ryandw11.structure.commands;
 
 import com.ryandw11.structure.CustomStructures;
-import com.ryandw11.structure.SchematicHandler;
 import com.ryandw11.structure.commands.cstruct.*;
-import com.ryandw11.structure.exceptions.RateLimitException;
-import com.ryandw11.structure.structure.Structure;
-import com.ryandw11.structure.structure.StructureBuilder;
-import com.ryandw11.structure.structure.properties.BlockLevelLimit;
-import com.ryandw11.structure.structure.properties.StructureLimitations;
-import com.ryandw11.structure.structure.properties.StructureLocation;
-import com.ryandw11.structure.structure.properties.StructureProperties;
 import org.bukkit.ChatColor;
-import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Objects;
 
 /**
  * Handles the commands for the plugin.
@@ -46,6 +28,7 @@ public class SCommand implements CommandExecutor {
         this.commandHandler.registerCommand("create", new CreateCommand(plugin));
         this.commandHandler.registerCommand("testspawn", new TestSpawnCommand(plugin));
         this.commandHandler.registerCommand(new AddonsCommand(plugin), "addon", "addons");
+        this.commandHandler.registerCommand(new SetLoottableCommand(plugin), "setloottable", "setloot", "setlt");
     }
 
     @Override
@@ -84,6 +67,8 @@ public class SCommand implements CommandExecutor {
                         "&3/cstructure create {name} {schematic} - &2Create a structure using the default settings."));
                 sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
                         "&3/cstructure addon - &2The list of addons."));
+                sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                        "&3/cstructure setLootTable - &2Easily specify a loot table for a container."));
             } else {
                 sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
                         "&3=============[&2CustomStructures&3]============="));

@@ -3,14 +3,17 @@ package com.ryandw11.structure;
 import com.ryandw11.structure.api.LootPopulateEvent;
 import com.ryandw11.structure.api.StructureSpawnEvent;
 import com.ryandw11.structure.api.holder.StructureSpawnHolder;
+import com.ryandw11.structure.bottomfill.BottomFillProvider;
 import com.ryandw11.structure.io.BlockTag;
 import com.ryandw11.structure.loottables.LootTable;
 import com.ryandw11.structure.loottables.LootTableType;
 import com.ryandw11.structure.structure.Structure;
+import com.ryandw11.structure.structure.properties.AdvancedSubSchematics;
 import com.ryandw11.structure.structure.properties.MaskProperty;
 import com.ryandw11.structure.structure.properties.SubSchematics;
 import com.ryandw11.structure.structure.properties.schematics.SubSchematic;
 import com.ryandw11.structure.utils.CSUtils;
+import com.ryandw11.structure.utils.NumberStylizer;
 import com.ryandw11.structure.utils.RandomCollection;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.IncompleteRegionException;
@@ -54,6 +57,9 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
+/**
+ * This class handles all schematic operations for the plugin.
+ */
 public class SchematicHandler {
 
     private final CustomStructures plugin;
@@ -77,7 +83,7 @@ public class SchematicHandler {
     public void schemHandle(Location loc, String filename, boolean useAir, Structure structure, int iteration)
             throws IOException, WorldEditException {
 
-        if (iteration > 2) {
+        if (iteration > structure.getStructureLimitations().getIterationLimit()) {
             plugin.getLogger().severe("Critical Error: StackOverflow detected. Automatically terminating the spawning of the structure.");
             plugin.getLogger().severe("The structure '" + structure.getName() + "' has spawned too many sub structure via recursion.");
             return;
@@ -155,6 +161,19 @@ public class SchematicHandler {
             }
         }
 
+        // If enabled, perform a bottom space fill.
+        if (structure.getBottomSpaceFill().isEnabled()) {
+            Location minLoc = getMinimumLocation(clipboard, loc, rotY);
+            Location maxLoc = getMaximumLocation(clipboard, loc, rotY);
+            int lowX = Math.min(minLoc.getBlockX(), maxLoc.getBlockX());
+            int lowY = Math.min(minLoc.getBlockY(), maxLoc.getBlockY());
+            int lowZ = Math.min(minLoc.getBlockZ(), maxLoc.getBlockZ());
+            int highX = Math.max(minLoc.getBlockX(), maxLoc.getBlockX());
+            int highY = Math.max(minLoc.getBlockY(), maxLoc.getBlockY());
+            int highz = Math.max(minLoc.getBlockZ(), maxLoc.getBlockZ());
+            BottomFillProvider.provide().performFill(structure, loc, new Location(minLoc.getWorld(), lowX, lowY, lowZ), new Location(minLoc.getWorld(), highX, highY, highz));
+        }
+
         //Schedule the signs & containers replacement task
         double finalRotY = rotY;
         // Run a task later. This is done so async plugins have time to paste as needed.
@@ -197,9 +216,9 @@ public class SchematicHandler {
                     Location maxLoc = getMaximumLocation(clipboard, loc, finalRotY);
                     processAndReplaceSign(location, minLoc, maxLoc);
                 }
-                // This is separate so that if the block doesn't exist anymore than it will not error out.
+                // If the sign still exists, it could be a sub-schematic sign.
                 if (location.getBlock().getState() instanceof Sign) {
-                    replaceSignWithSchematic(location, structure.getSubSchematics(), structure, iteration);
+                    replaceSignWithSchematic(location, structure, iteration);
                 }
             }
 
@@ -321,10 +340,9 @@ public class SchematicHandler {
                     BlockState blockState = location.getBlock().getState();
 
                     if (blockState instanceof Container) {
-                        if (blockState instanceof Chest) {
-                            InventoryHolder holder = ((Chest) blockState).getInventory().getHolder();
-                            if (holder instanceof DoubleChest) {
-                                DoubleChest doubleChest = ((DoubleChest) holder);
+                        if (blockState instanceof Chest chestBlockState) {
+                            InventoryHolder holder = chestBlockState.getInventory().getHolder();
+                            if (holder instanceof DoubleChest doubleChest) {
                                 Location leftSideLocation = ((Chest) doubleChest.getLeftSide()).getLocation();
                                 Location rightSideLocation = ((Chest) doubleChest.getRightSide()).getLocation();
 
@@ -473,8 +491,7 @@ public class SchematicHandler {
                     if (blockState instanceof Container) {
                         if (blockState instanceof Chest) {
                             InventoryHolder holder = ((Chest) blockState).getInventory().getHolder();
-                            if (holder instanceof DoubleChest) {
-                                DoubleChest doubleChest = ((DoubleChest) holder);
+                            if (holder instanceof DoubleChest doubleChest) {
                                 Location leftSideLocation = ((Chest) doubleChest.getLeftSide()).getLocation();
                                 Location rightSideLocation = ((Chest) doubleChest.getRightSide()).getLocation();
 
@@ -540,7 +557,6 @@ public class SchematicHandler {
      * @param location  The location of the container.
      */
     private void replaceContainerContent(Structure structure, Location location) {
-        if (structure.getLootTables().isEmpty()) return;
 
         BlockState blockState = location.getBlock().getState();
         Container container = (Container) blockState;
@@ -548,10 +564,34 @@ public class SchematicHandler {
         Block block = location.getBlock();
         LootTableType blockType = LootTableType.valueOf(block.getType());
 
-        RandomCollection<LootTable> tables = structure.getLootTables(blockType);
-        if (tables == null) return;
+        boolean explictLoottableDefined = false;
+        LootTable lootTable = null;
 
-        LootTable lootTable = tables.next();
+        if (containerInventory.getItem(0) != null) {
+            ItemStack paper = containerInventory.getItem(0);
+            if (paper.getType() == Material.PAPER &&
+                    paper.hasItemMeta() &&
+                    paper.getItemMeta().hasDisplayName() &&
+                    paper.getItemMeta().getDisplayName().contains("%${") &&
+                    paper.getItemMeta().getDisplayName().contains("}$%")) {
+                String name = paper.getItemMeta().getDisplayName()
+                        .replace("%${", "")
+                        .replace("}$%", "");
+                lootTable = plugin.getLootTableHandler().getLootTableByName(name);
+                containerInventory.clear();
+                explictLoottableDefined = true;
+            }
+        }
+
+        if (lootTable == null) {
+            if (structure.getLootTables().isEmpty()) return;
+
+            RandomCollection<LootTable> tables = structure.getLootTables(blockType);
+            if (tables == null) return;
+
+            lootTable = tables.next();
+        }
+
         Random random = new Random();
 
         // Trigger the loot populate event.
@@ -560,12 +600,13 @@ public class SchematicHandler {
 
         if (event.isCanceled()) return;
 
+        // TODO: This is not a good method, should try to pick another loot table if failed.
         for (int i = 0; i < lootTable.getRolls(); i++) {
-            if (lootTable.getTypes().contains(blockType) && containerInventory instanceof FurnaceInventory) {
-                this.replaceFurnaceContent(lootTable, random, (FurnaceInventory) containerInventory);
-            } else if (lootTable.getTypes().contains(blockType) && containerInventory instanceof BrewerInventory) {
-                this.replaceBrewerContent(lootTable, random, (BrewerInventory) containerInventory);
-            } else if (lootTable.getTypes().contains(blockType)) {
+            if ((lootTable.getTypes().contains(blockType) || explictLoottableDefined) && containerInventory instanceof FurnaceInventory) {
+                this.replaceFurnaceContent(lootTable, (FurnaceInventory) containerInventory);
+            } else if ((lootTable.getTypes().contains(blockType) || explictLoottableDefined) && containerInventory instanceof BrewerInventory) {
+                this.replaceBrewerContent(lootTable, (BrewerInventory) containerInventory);
+            } else if (lootTable.getTypes().contains(blockType) || explictLoottableDefined) {
                 this.replaceChestContent(lootTable, random, containerInventory);
             }
         }
@@ -582,36 +623,47 @@ public class SchematicHandler {
         String firstLine;
         String secondLine;
         String thirdLine;
+        String fourthLine;
 
-        if (location.getBlock().getState() instanceof Sign) {
+        if (location.getBlock().getState() instanceof Sign || location.getBlock().getState() instanceof WallSign) {
             firstLine = sign.getLine(0).trim();
             secondLine = sign.getLine(1).trim();
             thirdLine = sign.getLine(2).trim();
-        } else if (location.getBlock().getState() instanceof WallSign) {
-            firstLine = sign.getLine(0).trim();
-            secondLine = sign.getLine(1).trim();
-            thirdLine = sign.getLine(2).trim();
+            fourthLine = sign.getLine(3).trim();
         } else return;
 
         // Process the type of sign.
         // Normal Mob Sign
         if (firstLine.equalsIgnoreCase("[mob]")) {
-            try {
-                Entity ent = Objects.requireNonNull(location.getWorld()).spawnEntity(location, EntityType.valueOf(secondLine.toUpperCase()));
-                if (ent instanceof LivingEntity) {
-                    LivingEntity livingEntity = (LivingEntity) ent;
-                    livingEntity.setRemoveWhenFarAway(false);
+            int count = 1;
+            if (!thirdLine.isEmpty()) {
+                try {
+                    // Impose a maximum limit of 40 mobs.
+                    count = Math.min(NumberStylizer.getStylizedInt(thirdLine), 40);
+                } catch (NumberFormatException ex) {
+                    // Ignore, keep count as 1.
                 }
+            }
+            try {
+                for (int i = 0; i < count; i++) {
+                    Entity ent = Objects.requireNonNull(location.getWorld()).spawnEntity(location, EntityType.valueOf(secondLine.toUpperCase()));
+                    if (ent instanceof LivingEntity livingEntity) {
+                        livingEntity.setRemoveWhenFarAway(false);
+                    }
+                }
+
                 location.getBlock().setType(Material.AIR);
             } catch (IllegalArgumentException e) {
                 plugin.getLogger().warning("Invalid mob type on structure sign.");
             }
         }
+
         // NPC Sign
         if (firstLine.equalsIgnoreCase("[npc]")) {
             plugin.getCitizensNpcHook().spawnNpc(plugin.getNpcHandler(), secondLine, location);
             location.getBlock().setType(Material.AIR);
         }
+
         // Command Sign.
         if (firstLine.equalsIgnoreCase("[command]") || firstLine.equalsIgnoreCase("[commands]")) {
             List<String> commands = plugin.getSignCommandsHandler().getCommands(secondLine);
@@ -631,17 +683,26 @@ public class SchematicHandler {
         }
         // Mythical Mob Sign
         if (firstLine.equalsIgnoreCase("[mythicmob]") || firstLine.equalsIgnoreCase("[mythicalmob]")) {
+            int count = 1;
+            if (!fourthLine.isEmpty()) {
+                try {
+                    // Impose a maximum limit of 40 mobs.
+                    count = Math.min(NumberStylizer.getStylizedInt(fourthLine), 40);
+                } catch (NumberFormatException ex) {
+                    // Ignore, keep count as 1.
+                }
+            }
             // Allow for the third line to have the level of the mob.
             if (thirdLine.isEmpty())
-                plugin.getMythicalMobHook().spawnMob(secondLine, location);
+                plugin.getMythicalMobHook().spawnMob(secondLine, location, count);
             else {
-                int level;
+                double level;
                 try {
-                    level = Integer.parseInt(thirdLine);
+                    level = Double.parseDouble(thirdLine);
                 } catch (NumberFormatException ex) {
                     level = 1;
                 }
-                plugin.getMythicalMobHook().spawnMob(secondLine, location, level);
+                plugin.getMythicalMobHook().spawnMob(secondLine, location, level, count);
             }
             location.getBlock().setType(Material.AIR);
         }
@@ -651,18 +712,19 @@ public class SchematicHandler {
      * Replace a sign with a schematic.
      *
      * @param location        The location of the sign.
-     * @param subSchematics   The sub schematic handler for the structure.
      * @param parentStructure The parent structure.
      * @param iteration       The iteration of schematic pasting.
      */
-    private void replaceSignWithSchematic(Location location, SubSchematics subSchematics, Structure parentStructure, int iteration) {
+    private void replaceSignWithSchematic(Location location, Structure parentStructure, int iteration) {
+        SubSchematics subSchematics = parentStructure.getSubSchematics();
+        AdvancedSubSchematics advancedSubSchematics = parentStructure.getAdvancedSubSchematics();
+
         Sign sign = (Sign) location.getBlock().getState();
         String firstLine = sign.getLine(0).trim();
         String secondLine = sign.getLine(1).trim();
 
         // Allow this to work with both wall signs and normal signs.
-        if (location.getBlock().getBlockData() instanceof org.bukkit.block.data.type.Sign) {
-            org.bukkit.block.data.type.Sign signData = (org.bukkit.block.data.type.Sign) location.getBlock().getBlockData();
+        if (location.getBlock().getBlockData() instanceof org.bukkit.block.data.type.Sign signData) {
 
             Vector direction = signData.getRotation().getDirection();
             double rotation = Math.atan2(direction.getZ(), direction.getX());
@@ -672,8 +734,7 @@ public class SchematicHandler {
                 rotation += (Math.PI / 2);
             }
             parentStructure.setSubSchemRotation(rotation);
-        } else if (location.getBlock().getBlockData() instanceof org.bukkit.block.data.type.WallSign) {
-            org.bukkit.block.data.type.WallSign signData = (org.bukkit.block.data.type.WallSign) location.getBlock().getBlockData();
+        } else if (location.getBlock().getBlockData() instanceof WallSign signData) {
             Vector direction = signData.getFacing().getDirection();
             double rotation = Math.atan2(direction.getZ(), direction.getX());
             if (direction.getX() != 0) {
@@ -689,6 +750,8 @@ public class SchematicHandler {
             if (secondLine.startsWith("[")) {
                 String v = secondLine.replace("[", "").replace("]", "");
                 String[] out = v.split("-");
+                if (out.length != 2)
+                    out = v.split(";");
                 try {
                     int num1 = Integer.parseInt(out[0]);
                     int num2 = Integer.parseInt(out[1]);
@@ -715,6 +778,29 @@ public class SchematicHandler {
             location.getBlock().setType(Material.AIR);
 
             SubSchematic subSchem = subSchematics.getSchematics().get(number);
+
+            // Disable rotation if the structure is not using it.
+            if (!subSchem.isUsingRotation())
+                parentStructure.setSubSchemRotation(0);
+            try {
+                schemHandle(location, subSchem.getFile(), subSchem.isPlacingAir(), parentStructure, iteration + 1);
+            } catch (Exception ex) {
+                plugin.getLogger().warning("An error has occurred when attempting to paste a sub schematic.");
+                if (plugin.isDebug()) {
+                    ex.printStackTrace();
+                }
+            }
+        } else if (firstLine.equalsIgnoreCase("[advschem]")) {
+            if (!advancedSubSchematics.containsCategory(secondLine)) {
+                plugin.getLogger().warning("Cannot replace Advanced Sub-Schematic sign.");
+                plugin.getLogger().warning(String.format("The category \"%s\" does not exist!", secondLine));
+                return;
+            }
+
+            // Remove the sign after placing the schematic.
+            location.getBlock().setType(Material.AIR);
+
+            SubSchematic subSchem = advancedSubSchematics.getCategory(secondLine).next();
 
             // Disable rotation if the structure is not using it.
             if (!subSchem.isUsingRotation())
@@ -776,6 +862,13 @@ public class SchematicHandler {
         }
     }
 
+    /**
+     * Check if two items are the same.
+     *
+     * @param randomPosItem The first item.
+     * @param randomItem    The second item.
+     * @return If the two items have the same metadata and type.
+     */
     private boolean isSameItem(ItemStack randomPosItem, ItemStack randomItem) {
         ItemMeta randomPosItemMeta = randomPosItem.getItemMeta();
         ItemMeta randomItemMeta = randomItem.getItemMeta();
@@ -783,7 +876,13 @@ public class SchematicHandler {
         return randomPosItem.getType().equals(randomItem.getType()) && randomPosItemMeta.equals(randomItemMeta);
     }
 
-    private void replaceBrewerContent(LootTable lootTable, Random random, BrewerInventory containerInventory) {
+    /**
+     * Replace the contents of a brewer with the loot table.
+     *
+     * @param lootTable          The loot table to populate the brewer with.
+     * @param containerInventory The inventory of the brewer.
+     */
+    private void replaceBrewerContent(LootTable lootTable, BrewerInventory containerInventory) {
         ItemStack item = lootTable.getRandomWeightedItem();
         ItemStack ingredient = containerInventory.getIngredient();
         ItemStack fuel = containerInventory.getFuel();
@@ -796,7 +895,13 @@ public class SchematicHandler {
 
     }
 
-    private void replaceFurnaceContent(LootTable lootTable, Random random, FurnaceInventory containerInventory) {
+    /**
+     * Replace the content of the furnace with loot table items.
+     *
+     * @param lootTable          The loot table selected for the furnace.
+     * @param containerInventory The inventory of the furnace.
+     */
+    private void replaceFurnaceContent(LootTable lootTable, FurnaceInventory containerInventory) {
         ItemStack item = lootTable.getRandomWeightedItem();
         ItemStack result = containerInventory.getResult();
         ItemStack fuel = containerInventory.getFuel();

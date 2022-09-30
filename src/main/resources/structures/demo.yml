@@ -24,22 +24,31 @@ StructureProperties:
   spawnInWater: true
   spawnInLavaLakes: true
   spawnInVoid: false
+  ignoreWater: false
 
 SubSchematics:
-  Enabled: false
   Schematics:
     demo2:
-      file: 'demo2.schem'
+      File: 'demo2.schem'
+      PlaceAir: false
+      UseRotation: false
+
+AdvancedSubSchematics:
+  CategoryOne:
+    demo2:
+      Weight: 20
+      File: 'demo2.schem'
       PlaceAir: false
       UseRotation: false
 
 StructureLimitations:
+  WorldHeightRestriction: 10
   whitelistSpawnBlocks:
     - GRASS_BLOCK
     - Dirt
     - Stone
     - air
-
+  blacklistSpawnBlocks: []
   # This could cause issue with lag depending on how large the search area is.
   BlockLevelLimit:
     # Can be flat or flat_error.
@@ -68,6 +77,11 @@ Masks:
 
   NegatedBlockMask:
     - WHITE_WOOL
+
+BottomSpaceFill:
+  'SNOWY_TAIGA,SNOWY_PLAINS': SNOW_BLOCK
+  'DESERT': SANDSTONE
+  'default': DIRT
 
 
 #List of lootTables for this Schematic, name and weight

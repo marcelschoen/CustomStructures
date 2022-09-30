@@ -10,8 +10,6 @@ import com.ryandw11.structure.structure.StructureHandler;
 import com.ryandw11.structure.structure.properties.BlockLevelLimit;
 import com.ryandw11.structure.structure.properties.StructureYSpawning;
 import com.sk89q.worldedit.WorldEditException;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Chunk;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -51,16 +49,9 @@ public class StructurePicker extends BukkitRunnable {
         this.ignoreBlocks = plugin.getBlockIgnoreManager();
 
         if (this.structureHandler == null) {
-            Bukkit.broadcastMessage(ChatColor.translateAlternateColorCodes('&',
-                    "&b[&aCustomStructures&b] &cA fatal error has occurred! Please check the console for errors."));
-            plugin.getLogger().severe("A fatal error has occurred!");
-            plugin.getLogger().severe("It appears that the plugin's setup process was not completed successfully.");
-            plugin.getLogger().severe("Try restarting the server or updating to the latest version of the server software.");
-            plugin.getLogger().severe("The plugin will now be disabled");
-            if (plugin.isDebug()) {
-                plugin.getLogger().severe("[DEBUG] CustomStructures#structureHandler was null when the StructurePicker was created.");
-            }
-            Bukkit.getPluginManager().disablePlugin(plugin);
+            plugin.getLogger().warning("A structure is trying to spawn without the plugin initialization step being completed.");
+            plugin.getLogger().warning("If you are using a fork of Spigot, this likely means that the fork does not adhere to the API standard properly.");
+            throw new RuntimeException("Plugin Not Initialized.");
         }
     }
 
@@ -129,7 +120,10 @@ public class StructurePicker extends BukkitRunnable {
                 structureBlock = ch.getBlock(8, structureSpawnSettings.getHeight(structureBlock.getLocation()), 8);
             }
 
-            if (!structure.getStructureLimitations().hasBlock(structureBlock))
+            if (!structure.getStructureLimitations().hasWhitelistBlock(structureBlock))
+                return;
+
+            if (structure.getStructureLimitations().hasBlacklistBlock(structureBlock))
                 return;
 
             // If it can spawn in water
@@ -146,6 +140,11 @@ public class StructurePicker extends BukkitRunnable {
             if (!structureSpawnSettings.isCalculateSpawnYFirst()) {
                 structureBlock = ch.getBlock(8, structureSpawnSettings.getHeight(structureBlock.getLocation()), 8);
             }
+
+            // If the structure is going to be cut off by the world height limit, pick a new structure.
+            if(structure.getStructureLimitations().getWorldHeightRestriction() != -1 &&
+                    structureBlock.getLocation().getY() > ch.getWorld().getMaxHeight() - structure.getStructureLimitations().getWorldHeightRestriction())
+                return;
 
             // If the structure can follows block level limit.
             // This only triggers if it spawns on the top.
@@ -189,9 +188,9 @@ public class StructurePicker extends BukkitRunnable {
                 try {
                     if (!section.checkStructureConditions(structure, structureBlock, ch)) return;
                 } catch (Exception ex) {
-                    plugin.getLogger().severe(String.format("[CS Addon] An error has occurred when attempting to spawn" +
+                    plugin.getLogger().severe(String.format("[CS Addon] An error has occurred when attempting to spawn " +
                             "the structure %s with the custom property %s!", structure.getName(), section.getName()));
-                    plugin.getLogger().severe("This is not a CustomStructures error! Please report" +
+                    plugin.getLogger().severe("This is not a CustomStructures error! Please report " +
                             "this to the developer of the addon.");
                     if (plugin.isDebug()) {
                         ex.printStackTrace();

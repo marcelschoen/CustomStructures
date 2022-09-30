@@ -90,8 +90,13 @@ public class TestSpawnCommand implements SubCommand {
             quickSendMessage(p, "&aSpawn Y Value: " + bl.getY());
         }
 
-        if (!structure.getStructureLimitations().hasBlock(bl)) {
-            quickSendMessage(p, String.format("&cFailed Block Limitation! Cannot spawn on %s!", bl.getType()));
+        if (!structure.getStructureLimitations().hasWhitelistBlock(bl)) {
+            quickSendMessage(p, String.format("&cFailed Block Limitation! Cannot spawn on %s! (Whitelist Defined)", bl.getType()));
+            return;
+        }
+
+        if(structure.getStructureLimitations().hasBlacklistBlock(bl)) {
+            quickSendMessage(p, String.format("&cFailed Block Limitation! Cannot spawn on %s! (Blacklist Defined)", bl.getType()));
             return;
         }
 
@@ -115,6 +120,13 @@ public class TestSpawnCommand implements SubCommand {
         if (!structureSpawnSettings.isCalculateSpawnYFirst()) {
             bl = ch.getBlock(8, structureSpawnSettings.getHeight(bl.getLocation()), 8);
             quickSendMessage(p, "&aSpawn Y Value: " + bl.getY());
+        }
+
+        // If the structure is going to be cut off by the world height limit, pick a new structure.
+        if(structure.getStructureLimitations().getWorldHeightRestriction() != -1 &&
+                bl.getLocation().getY() > ch.getWorld().getMaxHeight() - structure.getStructureLimitations().getWorldHeightRestriction()) {
+            quickSendMessage(p, "&cFailed World Height Restriction!");
+            return;
         }
 
         // If the structure can follows block level limit.

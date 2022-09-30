@@ -8,13 +8,13 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Ignore blocks for 1.17
- * <p>
- * TODO Maybe use built in list defined by data packs? Or have the option
+ * Ignore blocks for 1.17 - 1.18
  */
 public class IgnoreBlocks_1_17 implements IgnoreBlocks {
 
     private final List<Material> plantBlocks = Collections.unmodifiableList(new ArrayList<>(Arrays.asList(
+            // General BLocks
+            Material.SNOW,
             // Grasses
             Material.GRASS,
             Material.TALL_GRASS,
